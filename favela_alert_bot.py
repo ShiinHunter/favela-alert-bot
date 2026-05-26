@@ -6,6 +6,8 @@ import discord
 
 from aiohttp import web
 from discord.ext import commands, tasks
+from discord.ui import View, Button
+
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -68,7 +70,9 @@ bot = FavelaBot(
 # =========================================================
 
 channel_cache = None
+
 panel_message = None
+role_message = None
 
 # =========================================================
 # EVENT EMOJIS
@@ -76,7 +80,7 @@ panel_message = None
 
 EVENT_EMOJIS = {
     "Escape Room": "🚪",
-    "Boss Rush": "🔥",
+    "Boss Rush": "👹",
     "Ranked Arena": "⚔️",
     "Gold Fish": "🐟",
     "Fortress War": "🏰",
@@ -105,32 +109,30 @@ EVENTS = load_events()
 # PANEL SAVE
 # =========================================================
 
-def save_panel(message_id):
+def save_panel_data(panel_id=None, role_id=None):
 
     with open(PANEL_FILE, "w", encoding="utf-8") as f:
 
         json.dump({
-            "panel_message_id": message_id
+            "panel_message_id": panel_id,
+            "role_message_id": role_id
         }, f)
 
-def load_panel():
+def load_panel_data():
 
     if not os.path.exists(PANEL_FILE):
-        return None
+        return {}
 
     try:
 
         with open(PANEL_FILE, "r", encoding="utf-8") as f:
-
-            data = json.load(f)
-
-        return data.get("panel_message_id")
+            return json.load(f)
 
     except:
-        return None
+        return {}
 
 # =========================================================
-# EMOJI
+# EMOJIS
 # =========================================================
 
 def event_emoji(event_name):
@@ -146,7 +148,7 @@ def role_ping():
     return f"<@&{EVENT_ROLE_ID}>"
 
 # =========================================================
-# COUNTDOWN FORMAT
+# FORMAT COUNTDOWN
 # =========================================================
 
 def format_countdown(seconds):
@@ -257,6 +259,143 @@ def get_next_events():
     return upcoming[:10]
 
 # =========================================================
+# ROLE BUTTON
+# =========================================================
+
+class NotificationView(View):
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Receber Notificações",
+        style=discord.ButtonStyle.green,
+        emoji="🔔",
+        custom_id="notification_button"
+    )
+    async def notification_button(
+        self,
+        interaction: discord.Interaction,
+        button: Button
+    ):
+
+        role = interaction.guild.get_role(EVENT_ROLE_ID)
+
+        if role is None:
+
+            await interaction.response.send_message(
+                "❌ Cargo não encontrado.",
+                ephemeral=True
+            )
+
+            return
+
+        try:
+
+            if role in interaction.user.roles:
+
+                await interaction.user.remove_roles(role)
+
+                await interaction.response.send_message(
+                    "❌ Notificações removidas.",
+                    ephemeral=True
+                )
+
+            else:
+
+                await interaction.user.add_roles(role)
+
+                await interaction.response.send_message(
+                    "✅ Notificações ativadas.",
+                    ephemeral=True
+                )
+
+        except Exception as e:
+
+            logging.error(f"Erro cargo: {e}")
+
+            await interaction.response.send_message(
+                "❌ Não consegui alterar seu cargo.",
+                ephemeral=True
+            )
+
+# =========================================================
+# ROLE PANEL
+# =========================================================
+
+async def setup_role_panel():
+
+    global role_message
+    global channel_cache
+
+    panel_data = load_panel_data()
+
+    embed = discord.Embed(
+        title="🔔 Notificações de Eventos",
+        description=(
+            "Clique no botão abaixo para\n"
+            "receber alertas automáticos dos eventos."
+        ),
+        color=0xffcc00
+    )
+
+    embed.add_field(
+        name="📢 Eventos Notificados",
+        value=(
+            "🚪 Escape Room\n"
+            "👹 Boss Rush\n"
+            "⚔️ Ranked Arena\n"
+            "🏰 Fortress War\n"
+            "🐉 Raids"
+        ),
+        inline=False
+    )
+
+    view = NotificationView()
+
+    try:
+
+        role_message_id = panel_data.get("role_message_id")
+
+        if role_message_id:
+
+            try:
+
+                role_message = await channel_cache.fetch_message(
+                    role_message_id
+                )
+
+            except:
+                role_message = None
+
+        if role_message is None:
+
+            role_message = await channel_cache.send(
+                embed=embed,
+                view=view
+            )
+
+            save_panel_data(
+                panel_data.get("panel_message_id"),
+                role_message.id
+            )
+
+            logging.info("Painel de cargo criado.")
+
+        else:
+
+            await role_message.edit(
+                embed=embed,
+                view=view
+            )
+
+            logging.info("Painel de cargo atualizado.")
+
+    except Exception as e:
+
+        logging.error(f"Erro painel cargo: {e}")
+
+# =========================================================
 # PANEL
 # =========================================================
 
@@ -294,9 +433,11 @@ async def update_panel():
 
     try:
 
+        panel_data = load_panel_data()
+
         if panel_message is None:
 
-            panel_id = load_panel()
+            panel_id = panel_data.get("panel_message_id")
 
             if panel_id:
 
@@ -311,7 +452,10 @@ async def update_panel():
 
             panel_message = await channel_cache.send(embed=embed)
 
-            save_panel(panel_message.id)
+            save_panel_data(
+                panel_message.id,
+                panel_data.get("role_message_id")
+            )
 
             logging.info("Painel criado.")
 
@@ -382,27 +526,66 @@ async def check_events():
                 )
 
 # =========================================================
+# TEST EVENT
+# =========================================================
+
+async def simulated_event():
+
+    embed = discord.Embed(
+        title="👹 Boss Rush",
+        description=(
+            f"{role_ping()}\n\n"
+            f"⏳ Começa em:\n"
+            f"**01m 00s**"
+        ),
+        color=0xffcc00
+    )
+
+    message = await channel_cache.send(embed=embed)
+
+    remaining = 60
+
+    while remaining > 0:
+
+        embed.description = (
+            f"{role_ping()}\n\n"
+            f"⏳ Começa em:\n"
+            f"**{format_countdown(remaining)}**"
+        )
+
+        await message.edit(embed=embed)
+
+        await asyncio.sleep(5)
+
+        remaining -= 5
+
+    start_embed = discord.Embed(
+        title="👹 Boss Rush",
+        description=(
+            f"{role_ping()}\n\n"
+            f"🔥 Evento começou!"
+        ),
+        color=0xff0000
+    )
+
+    await message.edit(embed=start_embed)
+
+# =========================================================
 # COMMANDS
 # =========================================================
 
 @bot.tree.command(
     name="teste",
-    description="Testa o bot"
+    description="Simula um evento"
 )
 async def teste(interaction: discord.Interaction):
 
-    logging.info("/teste executado")
-
     await interaction.response.defer(ephemeral=True)
 
-    await send_alert(
-        "Boss Rush",
-        "🔥 TESTE MANUAL",
-        0xff0000
-    )
+    asyncio.create_task(simulated_event())
 
     await interaction.followup.send(
-        "✅ Teste enviado.",
+        "✅ Evento de teste iniciado.",
         ephemeral=True
     )
 
@@ -418,6 +601,37 @@ async def painel(interaction: discord.Interaction):
 
     await interaction.followup.send(
         "✅ Painel atualizado.",
+        ephemeral=True
+    )
+
+@bot.tree.command(
+    name="eventos",
+    description="Lista eventos do dia"
+)
+async def eventos(interaction: discord.Interaction):
+
+    events = get_today_events()
+
+    embed = discord.Embed(
+        title="📅 Eventos de Hoje",
+        color=0x00ffcc
+    )
+
+    text = ""
+
+    for event in events:
+
+        emoji = event_emoji(event["name"])
+
+        text += (
+            f"{emoji} **{event['name']}**\n"
+            f"🕒 {' | '.join(event['times'])}\n\n"
+        )
+
+    embed.description = text
+
+    await interaction.response.send_message(
+        embed=embed,
         ephemeral=True
     )
 
@@ -469,6 +683,10 @@ async def on_ready():
         logging.error(f"Erro canal: {e}")
 
         return
+
+    bot.add_view(NotificationView())
+
+    await setup_role_panel()
 
     await update_panel()
 
