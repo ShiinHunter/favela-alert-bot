@@ -1,76 +1,76 @@
 {
   "daily": [
     {
-      "name": "Escape Room",
+      "name": "Fuga do Quartel",
       "times": [
-        "03:00",
-        "11:00",
-        "19:00"
+        "22:00",
+        "06:00",
+        "14:00"
       ]
     },
     {
-      "name": "Boss Rush",
+      "name": "Chefe Rush",
       "times": [
-        "15:00"
+        "10:00"
       ]
     }
   ],
 
   "weekly": {
 
-    "monday": [
+    "segunda": [
       {
         "name": "Gold Fish",
         "times": [
-          "07:00",
-          "15:15"
+          "02:00",
+          "10:15"
         ]
       }
     ],
 
-    "tuesday": [
+    "terca": [
       {
         "name": "Ranked Arena",
         "times": [
-          "15:30",
-          "20:30"
-        ]
-      }
-    ],
-
-    "wednesday": [
-      {
-        "name": "Fortress War",
-        "times": [
+          "10:30",
           "15:30"
         ]
       }
     ],
 
-    "thursday": [
+    "quarta": [
+      {
+        "name": "Fortress War",
+        "times": [
+          "10:30"
+        ]
+      }
+    ],
+
+    "quinta": [
       {
         "name": "Ranked Arena",
         "times": [
-          "15:30",
-          "20:30"
+          "10:30",
+          "15:30"
         ]
       }
     ],
 
-    "friday": [
+    "sexta": [
       {
         "name": "Raids",
         "times": [
-          "00:00"
+          "19:00"
         ]
       }
     ],
 
-    "saturday": [
+    "sabado": [
       {
         "name": "Raids",
         "times": [
-          "00:00"
+          "19:00"
         ]
       }
     ]
