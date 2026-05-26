@@ -1,7 +1,7 @@
 {
   "daily": [
     {
-      "name": "Fuga do Quartel",
+      "name": "Escape Room",
       "times": [
         "22:00",
         "06:00",
@@ -9,7 +9,7 @@
       ]
     },
     {
-      "name": "Chefe Rush",
+      "name": "Boss Rush",
       "times": [
         "10:00"
       ]
@@ -32,6 +32,8 @@
       {
         "name": "Ranked Arena",
         "times": [
+          "22:30",
+          "05:30",
           "10:30",
           "15:30"
         ]
@@ -51,6 +53,8 @@
       {
         "name": "Ranked Arena",
         "times": [
+          "22:30",
+          "05:30",
           "10:30",
           "15:30"
         ]
