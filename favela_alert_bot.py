@@ -6,7 +6,7 @@ import discord
 
 from aiohttp import web
 from discord.ext import commands, tasks
-from discord.ui import View, Button
+from discord.ui import View
 
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -46,9 +46,10 @@ logging.basicConfig(
 # =========================================================
 
 intents = discord.Intents.default()
+
 intents.message_content = True
-intents.guilds = True
 intents.members = True
+intents.guilds = True
 
 bot = commands.Bot(
     command_prefix="!",
@@ -61,10 +62,10 @@ bot = commands.Bot(
 
 channel_cache = None
 
-active_countdowns = {}
-
 panel_message = None
 role_message = None
+
+active_countdowns = {}
 
 # =========================================================
 # EVENT EMOJIS
@@ -534,11 +535,6 @@ async def countdown_event(event_id, event_name, event_dt):
 
         logging.error(f"Erro countdown {event_name}: {e}")
 
-    finally:
-
-        if event_id in active_countdowns:
-            del active_countdowns[event_id]
-
 # =========================================================
 # CLEAN NOTIFIED
 # =========================================================
@@ -551,8 +547,6 @@ async def clean_notified():
     notified = set()
 
     save_notified()
-
-    logging.info("Notificações resetadas.")
 
 # =========================================================
 # PANEL LOOP
@@ -602,8 +596,6 @@ async def check_events():
             warn_key = f"warn-{unique_id}"
             start_key = f"start-{unique_id}"
 
-            # WARNING
-
             if (
                 warn_key not in notified
                 and warn_dt <= now < warn_dt + timedelta(seconds=15)
@@ -632,8 +624,6 @@ async def check_events():
                             event_dt
                         )
                     )
-
-            # START EVENT
 
             if (
                 start_key not in notified
@@ -664,6 +654,10 @@ async def check_events():
 )
 async def teste(interaction: discord.Interaction):
 
+    logging.info("/teste executado")
+
+    await interaction.response.defer(ephemeral=True)
+
     fake_dt = datetime.now(LOCAL_TZ) + timedelta(minutes=1)
 
     asyncio.create_task(
@@ -674,7 +668,7 @@ async def teste(interaction: discord.Interaction):
         )
     )
 
-    await interaction.response.send_message(
+    await interaction.followup.send(
         "✅ Teste iniciado.",
         ephemeral=True
     )
@@ -762,7 +756,7 @@ async def on_ready():
 
     logging.info(f"BOT ONLINE: {bot.user}")
 
-    channel_cache = bot.get_channel(CHANNEL_ID)
+    channel_cache = await bot.fetch_channel(CHANNEL_ID)
 
     guild = discord.Object(id=GUILD_ID)
 
