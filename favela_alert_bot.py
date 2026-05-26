@@ -1,3 +1,4 @@
+import os
 import discord
 from discord.ext import tasks
 from datetime import datetime, timedelta
@@ -6,10 +7,9 @@ from zoneinfo import ZoneInfo
 # =============================
 # CONFIGURE AQUI
 # =============================
-TOKEN = "COLE_SEU_NOVO_TOKEN_AQUI"
+TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = 1508595763855229048
-EVENT_ROLE_ID = 1508823642958594149  # opcional: coloque o ID do cargo @Event Ping
-
+EVENT_ROLE_ID = 1508823642958594149
 # Horário local do usuário (Brasília)
 TZ = ZoneInfo("America/Sao_Paulo")
 
