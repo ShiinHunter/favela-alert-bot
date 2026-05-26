@@ -17,7 +17,6 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 
 CHANNEL_ID = 1508595763855229048
 EVENT_ROLE_ID = 1508823642958594149
-GUILD_ID = 1508595762965774417
 
 EVENT_FILE = "events.json"
 PANEL_FILE = "panel.json"
@@ -45,7 +44,21 @@ intents.guilds = True
 intents.members = True
 intents.message_content = True
 
-bot = commands.Bot(
+# =========================================================
+# BOT
+# =========================================================
+
+class FavelaBot(commands.Bot):
+
+    async def setup_hook(self):
+
+        logging.info("Sincronizando slash commands...")
+
+        await self.tree.sync()
+
+        logging.info("Slash commands sincronizados.")
+
+bot = FavelaBot(
     command_prefix="!",
     intents=intents
 )
@@ -58,7 +71,7 @@ channel_cache = None
 panel_message = None
 
 # =========================================================
-# EMOJIS
+# EVENT EMOJIS
 # =========================================================
 
 EVENT_EMOJIS = {
@@ -117,7 +130,7 @@ def load_panel():
         return None
 
 # =========================================================
-# EVENT EMOJI
+# EMOJI
 # =========================================================
 
 def event_emoji(event_name):
@@ -133,7 +146,7 @@ def role_ping():
     return f"<@&{EVENT_ROLE_ID}>"
 
 # =========================================================
-# FORMAT TIME
+# COUNTDOWN FORMAT
 # =========================================================
 
 def format_countdown(seconds):
@@ -306,8 +319,6 @@ async def update_panel():
 
             await panel_message.edit(embed=embed)
 
-            logging.info("Painel atualizado.")
-
     except Exception as e:
 
         logging.error(f"Erro painel: {e}")
@@ -347,8 +358,6 @@ async def check_events():
 
             warn_dt = event_dt - timedelta(minutes=5)
 
-            # WARNING
-
             if warn_dt <= now < warn_dt + timedelta(seconds=15):
 
                 await send_alert(
@@ -360,8 +369,6 @@ async def check_events():
                     ),
                     0xffcc00
                 )
-
-            # START
 
             if event_dt <= now < event_dt + timedelta(seconds=15):
 
@@ -380,8 +387,7 @@ async def check_events():
 
 @bot.tree.command(
     name="teste",
-    description="Teste do bot",
-    guild=discord.Object(id=GUILD_ID)
+    description="Testa o bot"
 )
 async def teste(interaction: discord.Interaction):
 
@@ -402,8 +408,7 @@ async def teste(interaction: discord.Interaction):
 
 @bot.tree.command(
     name="painel",
-    description="Atualiza o painel",
-    guild=discord.Object(id=GUILD_ID)
+    description="Atualiza o painel"
 )
 async def painel(interaction: discord.Interaction):
 
@@ -464,18 +469,6 @@ async def on_ready():
         logging.error(f"Erro canal: {e}")
 
         return
-
-    try:
-
-        guild = discord.Object(id=GUILD_ID)
-
-        synced = await bot.tree.sync(guild=guild)
-
-        logging.info(f"Slash sincronizados: {len(synced)}")
-
-    except Exception as e:
-
-        logging.error(f"Erro slash sync: {e}")
 
     await update_panel()
 
