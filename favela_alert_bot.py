@@ -2,189 +2,299 @@ import os
 import json
 import asyncio
 import discord
+
 from discord.ext import tasks
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-# =============================
+# ==========================================
 # CONFIG
-# =============================
+# ==========================================
+
 TOKEN = os.getenv("DISCORD_TOKEN")
+
 CHANNEL_ID = 1508595763855229048
 EVENT_ROLE_ID = 1508823642958594149
+
 EVENT_FILE = "events.json"
+
+GAME_TZ = ZoneInfo("Etc/GMT+5")
+LOCAL_TZ = ZoneInfo("America/Sao_Paulo")
 
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 
+channel_cache = None
+
 notified = set()
-active_countdowns = {}  # evento -> mensagem embed
 
+active_countdowns = {}
 
-# =============================
+# ==========================================
 # LOAD EVENTS
-# =============================
+# ==========================================
+
 def load_events():
     if not os.path.exists(EVENT_FILE):
-        return {}
+        return {"daily": [], "weekly": {}}
+
     with open(EVENT_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-DAILY_EVENTS = load_events()
+EVENTS = load_events()
 
-
-# =============================
+# ==========================================
 # ROLE PING
-# =============================
+# ==========================================
+
 def role_ping():
-    return f"<@&{EVENT_ROLE_ID}>" if EVENT_ROLE_ID else "@Event Ping"
+    return f"<@&{EVENT_ROLE_ID}>"
 
-
-# =============================
+# ==========================================
 # FORMAT COUNTDOWN
-# =============================
+# ==========================================
+
 def format_countdown(seconds):
+
     if seconds <= 0:
         return "AGORA"
-    m, s = divmod(int(seconds), 60)
-    return f"{m}m {s}s"
 
+    minutes, seconds = divmod(int(seconds), 60)
 
-# =============================
-# ALERT EMBED
-# =============================
-async def send_alert(message):
-    channel = await client.fetch_channel(CHANNEL_ID)
+    return f"{minutes:02d}m {seconds:02d}s"
+
+# ==========================================
+# SEND ALERT
+# ==========================================
+
+async def send_alert(title, description):
 
     embed = discord.Embed(
-        title="🎮 Aero Tales",
-        description=f"⚔️ **Favela Alerta** ⚔️\n\n{role_ping()}\n\n{message}",
+        title=title,
+        description=description,
         color=0x00ffcc
     )
 
-    embed.set_image(url="https://i.imgur.com/SEU_BANNER_AQUI.png")
+    embed.set_footer(text="Aero Tales")
+    embed.timestamp = datetime.now()
 
-    await channel.send(embed=embed)
+    await channel_cache.send(embed=embed)
 
+# ==========================================
+# COUNTDOWN
+# ==========================================
 
-# =============================
-# COUNTDOWN EMBED UPDATE
-# =============================
-async def update_countdown(event_name, event_dt):
-    channel = await client.fetch_channel(CHANNEL_ID)
+async def countdown_event(event_id, event_name, event_dt):
 
-    while True:
-        now = datetime.now(ZoneInfo("America/Sao_Paulo"))
-        diff = (event_dt - now).total_seconds()
+    try:
 
-        if diff <= 0:
-            break
+        embed_message = None
 
-        embed = discord.Embed(
-            title=f"🎮 Aero Tales - {event_name}",
+        while True:
+
+            now = datetime.now(LOCAL_TZ)
+
+            remaining = (event_dt - now).total_seconds()
+
+            if remaining <= 0:
+                break
+
+            embed = discord.Embed(
+                title=f"⏳ {event_name}",
+                description=(
+                    f"{role_ping()}\n\n"
+                    f"Evento começa em:\n"
+                    f"**{format_countdown(remaining)}**"
+                ),
+                color=0xffcc00
+            )
+
+            embed.timestamp = event_dt
+
+            if embed_message is None:
+
+                embed_message = await channel_cache.send(embed=embed)
+
+                active_countdowns[event_id] = embed_message
+
+            else:
+
+                await embed_message.edit(embed=embed)
+
+            await asyncio.sleep(15)
+
+        final_embed = discord.Embed(
+            title=f"🚨 {event_name}",
             description=(
-                "⚔️ **Favela Alerta** ⚔️\n\n"
-                f"⏳ **Começa em:** {format_countdown(diff)}\n"
-                f"{role_ping()}"
+                f"{role_ping()}\n\n"
+                f"Evento começou AGORA!"
             ),
-            color=0xffcc00
+            color=0xff0000
         )
 
-        embed.set_image(url="https://i.imgur.com/SEU_BANNER_AQUI.png")
+        if embed_message:
+            await embed_message.edit(embed=final_embed)
 
-        if event_name in active_countdowns:
-            msg = active_countdowns[event_name]
-            await msg.edit(embed=embed)
-        else:
-            msg = await channel.send(embed=embed)
-            active_countdowns[event_name] = msg
+    except Exception as e:
+        print(f"Erro countdown {event_name}: {e}")
 
-        await asyncio.sleep(20)
+    finally:
 
+        if event_id in active_countdowns:
+            del active_countdowns[event_id]
 
-# =============================
-# EVENT LOOP
-# =============================
-@tasks.loop(seconds=20)
+# ==========================================
+# GET TODAY EVENTS
+# ==========================================
+
+def get_today_events():
+
+    events = []
+
+    # DAILY
+    for event in EVENTS.get("daily", []):
+        events.append(event)
+
+    # WEEKLY
+    weekday = datetime.now(LOCAL_TZ).strftime("%A").lower()
+
+    weekly_events = EVENTS.get("weekly", {}).get(weekday, [])
+
+    for event in weekly_events:
+        events.append(event)
+
+    return events
+
+# ==========================================
+# MAIN LOOP
+# ==========================================
+
+@tasks.loop(seconds=15)
 async def check_events():
-    global DAILY_EVENTS
 
-    now = datetime.now(ZoneInfo("America/Sao_Paulo"))
-    today = now.date()
+    global EVENTS
 
-    for event_name, times in DAILY_EVENTS.items():
-        for t in times:
+    EVENTS = load_events()
 
-            hour, minute = map(int, t.split(":"))
+    now = datetime.now(LOCAL_TZ)
 
-            event_dt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            warn_dt = event_dt - timedelta(minutes=5)
+    today_events = get_today_events()
 
-            warn_key = f"{event_name}-warn-{today}-{t}"
-            start_key = f"{event_name}-start-{today}-{t}"
-            countdown_key = f"{event_name}-cd-{today}-{t}"
+    for event in today_events:
 
-            # =====================
-            # 5 MIN WARNING
-            # =====================
-            if warn_key not in notified:
-                if warn_dt <= now < warn_dt + timedelta(seconds=30):
-                    notified.add(warn_key)
+        event_name = event["name"]
 
-                    await send_alert(
-                        f"🔔 **{event_name} em 5 minutos!**\n⏳ Horário: {t}"
+        for game_time in event["times"]:
+
+            hour, minute = map(int, game_time.split(":"))
+
+            # horário original do jogo UTC-5
+            game_dt = datetime.now(GAME_TZ).replace(
+                hour=hour,
+                minute=minute,
+                second=0,
+                microsecond=0
+            )
+
+            # converte pra brasilia
+            local_dt = game_dt.astimezone(LOCAL_TZ)
+
+            warn_dt = local_dt - timedelta(minutes=5)
+
+            unique_id = f"{event_name}-{local_dt}"
+
+            warn_key = f"warn-{unique_id}"
+            start_key = f"start-{unique_id}"
+
+            # ======================================
+            # WARNING
+            # ======================================
+
+            if (
+                warn_key not in notified
+                and warn_dt <= now < warn_dt + timedelta(seconds=15)
+            ):
+
+                notified.add(warn_key)
+
+                await send_alert(
+                    f"🔔 {event_name}",
+                    (
+                        f"{role_ping()}\n\n"
+                        f"Começa em 5 minutos.\n"
+                        f"Horário: {local_dt.strftime('%H:%M')}"
+                    )
+                )
+
+                if unique_id not in active_countdowns:
+
+                    asyncio.create_task(
+                        countdown_event(
+                            unique_id,
+                            event_name,
+                            local_dt
+                        )
                     )
 
-            # =====================
-            # START EVENT
-            # =====================
-            if start_key not in notified:
-                if event_dt <= now < event_dt + timedelta(seconds=30):
-                    notified.add(start_key)
+            # ======================================
+            # START
+            # ======================================
 
-                    await send_alert(
-                        f"🚨 **{event_name} COMEÇOU!**\n⚔️ Horário: {t}"
+            if (
+                start_key not in notified
+                and local_dt <= now < local_dt + timedelta(seconds=15)
+            ):
+
+                notified.add(start_key)
+
+                await send_alert(
+                    f"🚨 {event_name}",
+                    (
+                        f"{role_ping()}\n\n"
+                        f"O evento começou!"
                     )
+                )
 
-            # =====================
-            # COUNTDOWN START (5 min antes)
-            # =====================
-            if countdown_key not in notified:
-                if warn_dt <= now < warn_dt + timedelta(seconds=30):
-                    notified.add(countdown_key)
-
-                    asyncio.create_task(update_countdown(event_name, event_dt))
-
-
-# =============================
+# ==========================================
 # READY
-# =============================
+# ==========================================
+
 @client.event
 async def on_ready():
-    print(f"Bot online: {client.user}")
 
-    global DAILY_EVENTS
-    DAILY_EVENTS = load_events()
+    global channel_cache
+
+    print(f"ONLINE: {client.user}")
+
+    channel_cache = client.get_channel(CHANNEL_ID)
 
     check_events.start()
 
+# ==========================================
+# TEST COMMAND
+# ==========================================
 
-# =============================
-# TEST
-# =============================
 @client.event
 async def on_message(message):
-    if message.author == client.user:
+
+    if message.author.bot:
         return
 
     if message.content == "!teste":
-        await send_alert("🔔 Boss Rush em 5 minutos (TESTE)")
-        await asyncio.sleep(2)
-        await send_alert("🚨 Boss Rush começou (TESTE)")
 
+        fake_dt = datetime.now(LOCAL_TZ) + timedelta(minutes=1)
 
-# =============================
+        asyncio.create_task(
+            countdown_event(
+                "teste",
+                "Boss Rush TESTE",
+                fake_dt
+            )
+        )
+
+# ==========================================
 # RUN
-# =============================
+# ==========================================
+
 client.run(TOKEN)
