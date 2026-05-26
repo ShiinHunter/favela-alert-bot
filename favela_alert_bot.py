@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 # =============================
 TOKEN = "COLE_SEU_NOVO_TOKEN_AQUI"
 CHANNEL_ID = 1508595763855229048
-EVENT_ROLE_ID = None  # opcional: coloque o ID do cargo @Event Ping
+EVENT_ROLE_ID = 1508823642958594149  # opcional: coloque o ID do cargo @Event Ping
 
 # Horário local do usuário (Brasília)
 TZ = ZoneInfo("America/Sao_Paulo")
