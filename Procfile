@@ -1,0 +1,1 @@
+worker: python favela_alert_bot.py
