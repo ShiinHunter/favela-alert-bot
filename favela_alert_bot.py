@@ -1,11 +1,22 @@
 import os
 import json
 import asyncio
+import logging
 import discord
 
+from aiohttp import web
 from discord.ext import commands, tasks
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
+# =========================================================
+# LOGGING
+# =========================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
 
 # =========================================================
 # CONFIG
@@ -17,8 +28,10 @@ CHANNEL_ID = 1508595763855229048
 EVENT_ROLE_ID = 1508823642958594149
 
 EVENT_FILE = "events.json"
+NOTIFIED_FILE = "notified.json"
 
-# HORÁRIO BRASIL
+PORT = int(os.getenv("PORT", 8080))
+
 LOCAL_TZ = ZoneInfo("America/Sao_Paulo")
 
 # =========================================================
@@ -39,9 +52,9 @@ bot = commands.Bot(
 
 channel_cache = None
 
-notified = set()
-
 active_countdowns = {}
+
+panel_message = None
 
 # =========================================================
 # LOAD EVENTS
@@ -60,6 +73,32 @@ def load_events():
         return json.load(f)
 
 EVENTS = load_events()
+
+# =========================================================
+# NOTIFIED PERSISTENCE
+# =========================================================
+
+def load_notified():
+
+    if not os.path.exists(NOTIFIED_FILE):
+        return set()
+
+    try:
+
+        with open(NOTIFIED_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        return set(data)
+
+    except:
+        return set()
+
+def save_notified():
+
+    with open(NOTIFIED_FILE, "w", encoding="utf-8") as f:
+        json.dump(list(notified), f, indent=4)
+
+notified = load_notified()
 
 # =========================================================
 # ROLE PING
@@ -81,7 +120,12 @@ def format_countdown(seconds):
     if seconds <= 0:
         return "AGORA"
 
-    minutes, seconds = divmod(int(seconds), 60)
+    hours, remainder = divmod(int(seconds), 3600)
+
+    minutes, seconds = divmod(remainder, 60)
+
+    if hours > 0:
+        return f"{hours:02d}h {minutes:02d}m"
 
     return f"{minutes:02d}m {seconds:02d}s"
 
@@ -101,6 +145,127 @@ async def send_alert(title, description, color=0x00ffcc):
     embed.timestamp = datetime.now(LOCAL_TZ)
 
     await channel_cache.send(embed=embed)
+
+# =========================================================
+# GET TODAY EVENTS
+# =========================================================
+
+def get_today_events():
+
+    events = []
+
+    for event in EVENTS.get("daily", []):
+        events.append(event)
+
+    weekdays = {
+        "monday": "segunda",
+        "tuesday": "terca",
+        "wednesday": "quarta",
+        "thursday": "quinta",
+        "friday": "sexta",
+        "saturday": "sabado",
+        "sunday": "domingo"
+    }
+
+    weekday_en = datetime.now(LOCAL_TZ).strftime("%A").lower()
+
+    weekday_pt = weekdays.get(weekday_en)
+
+    weekly_events = EVENTS.get("weekly", {}).get(weekday_pt, [])
+
+    for event in weekly_events:
+        events.append(event)
+
+    return events
+
+# =========================================================
+# NEXT EVENTS
+# =========================================================
+
+def get_next_events(limit=5):
+
+    now = datetime.now(LOCAL_TZ)
+
+    upcoming = []
+
+    today_events = get_today_events()
+
+    for event in today_events:
+
+        for event_time in event["times"]:
+
+            hour, minute = map(int, event_time.split(":"))
+
+            event_dt = now.replace(
+                hour=hour,
+                minute=minute,
+                second=0,
+                microsecond=0
+            )
+
+            if event_dt < now:
+                continue
+
+            diff = (event_dt - now).total_seconds()
+
+            upcoming.append({
+                "name": event["name"],
+                "time": event_dt,
+                "diff": diff
+            })
+
+    upcoming.sort(key=lambda x: x["diff"])
+
+    return upcoming[:limit]
+
+# =========================================================
+# UPDATE PANEL
+# =========================================================
+
+async def update_panel():
+
+    global panel_message
+
+    next_events = get_next_events()
+
+    embed = discord.Embed(
+        title="📅 Próximos Eventos",
+        color=0x00ffcc
+    )
+
+    if not next_events:
+
+        embed.description = "Nenhum evento encontrado."
+
+    else:
+
+        text = ""
+
+        for event in next_events:
+
+            text += (
+                f"⏳ **{event['name']}**\n"
+                f"🕒 {event['time'].strftime('%H:%M')}\n"
+                f"⌛ {format_countdown(event['diff'])}\n\n"
+            )
+
+        embed.description = text
+
+    embed.set_footer(text="Atualiza automaticamente")
+
+    try:
+
+        if panel_message is None:
+
+            panel_message = await channel_cache.send(embed=embed)
+
+        else:
+
+            await panel_message.edit(embed=embed)
+
+    except Exception as e:
+
+        logging.error(f"Erro painel: {e}")
 
 # =========================================================
 # COUNTDOWN
@@ -162,7 +327,7 @@ async def countdown_event(event_id, event_name, event_dt):
 
     except Exception as e:
 
-        print(f"[ERRO COUNTDOWN] {event_name}: {e}")
+        logging.error(f"Erro countdown {event_name}: {e}")
 
     finally:
 
@@ -170,44 +335,28 @@ async def countdown_event(event_id, event_name, event_dt):
             del active_countdowns[event_id]
 
 # =========================================================
-# GET TODAY EVENTS
+# CLEAN NOTIFIED
 # =========================================================
 
-def get_today_events():
+@tasks.loop(hours=24)
+async def clean_notified():
 
-    events = []
+    global notified
 
-    # =========================================
-    # EVENTOS DIÁRIOS
-    # =========================================
+    notified = set()
 
-    for event in EVENTS.get("daily", []):
-        events.append(event)
+    save_notified()
 
-    # =========================================
-    # DIAS EM PORTUGUÊS
-    # =========================================
+    logging.info("Notificações resetadas.")
 
-    weekdays = {
-        "monday": "segunda",
-        "tuesday": "terca",
-        "wednesday": "quarta",
-        "thursday": "quinta",
-        "friday": "sexta",
-        "saturday": "sabado",
-        "sunday": "domingo"
-    }
+# =========================================================
+# PANEL LOOP
+# =========================================================
 
-    weekday_en = datetime.now(LOCAL_TZ).strftime("%A").lower()
+@tasks.loop(seconds=60)
+async def panel_loop():
 
-    weekday_pt = weekdays.get(weekday_en)
-
-    weekly_events = EVENTS.get("weekly", {}).get(weekday_pt, [])
-
-    for event in weekly_events:
-        events.append(event)
-
-    return events
+    await update_panel()
 
 # =========================================================
 # CHECK EVENTS LOOP
@@ -246,9 +395,7 @@ async def check_events():
             warn_key = f"warn-{unique_id}"
             start_key = f"start-{unique_id}"
 
-            # =========================================
             # WARNING
-            # =========================================
 
             if (
                 warn_key not in notified
@@ -256,6 +403,8 @@ async def check_events():
             ):
 
                 notified.add(warn_key)
+
+                save_notified()
 
                 await send_alert(
                     f"🔔 {event_name}",
@@ -277,9 +426,7 @@ async def check_events():
                         )
                     )
 
-            # =========================================
             # START EVENT
-            # =========================================
 
             if (
                 start_key not in notified
@@ -287,6 +434,8 @@ async def check_events():
             ):
 
                 notified.add(start_key)
+
+                save_notified()
 
                 await send_alert(
                     f"🚨 {event_name}",
@@ -298,33 +447,11 @@ async def check_events():
                 )
 
 # =========================================================
-# READY
+# SLASH COMMANDS
 # =========================================================
 
-@bot.event
-async def on_ready():
-
-    global channel_cache
-
-    print("=" * 50)
-    print(f"BOT ONLINE: {bot.user}")
-    print("=" * 50)
-
-    channel_cache = bot.get_channel(CHANNEL_ID)
-
-    if channel_cache is None:
-        print("ERRO: Canal não encontrado.")
-        return
-
-    if not check_events.is_running():
-        check_events.start()
-
-# =========================================================
-# TEST COMMAND
-# =========================================================
-
-@bot.command()
-async def teste(ctx):
+@bot.tree.command(name="teste", description="Inicia um teste de countdown")
+async def slash_teste(interaction: discord.Interaction):
 
     fake_dt = datetime.now(LOCAL_TZ) + timedelta(minutes=1)
 
@@ -336,27 +463,25 @@ async def teste(ctx):
         )
     )
 
-    await ctx.send("✅ Teste iniciado.")
+    await interaction.response.send_message(
+        "✅ Teste iniciado.",
+        ephemeral=True
+    )
 
-# =========================================================
-# RELOAD EVENTS
-# =========================================================
-
-@bot.command()
-async def reload(ctx):
+@bot.tree.command(name="reload", description="Recarrega os eventos")
+async def slash_reload(interaction: discord.Interaction):
 
     global EVENTS
 
     EVENTS = load_events()
 
-    await ctx.send("🔄 Eventos recarregados.")
+    await interaction.response.send_message(
+        "🔄 Eventos recarregados.",
+        ephemeral=True
+    )
 
-# =========================================================
-# LIST EVENTS
-# =========================================================
-
-@bot.command()
-async def eventos(ctx):
+@bot.tree.command(name="eventos", description="Lista os eventos")
+async def slash_eventos(interaction: discord.Interaction):
 
     EVENTS = load_events()
 
@@ -365,7 +490,6 @@ async def eventos(ctx):
         color=0x00ffcc
     )
 
-    # DAILY
     daily_text = ""
 
     for event in EVENTS.get("daily", []):
@@ -383,7 +507,6 @@ async def eventos(ctx):
         inline=False
     )
 
-    # WEEKLY
     weekly_text = ""
 
     for day, events in EVENTS.get("weekly", {}).items():
@@ -407,24 +530,83 @@ async def eventos(ctx):
         inline=False
     )
 
-    await ctx.send(embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 # =========================================================
-# ERROR HANDLER
+# HEALTHCHECK RAILWAY
+# =========================================================
+
+async def healthcheck(request):
+    return web.Response(text="Bot Online")
+
+async def run_webserver():
+
+    app = web.Application()
+
+    app.router.add_get("/", healthcheck)
+
+    runner = web.AppRunner(app)
+
+    await runner.setup()
+
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+
+    await site.start()
+
+    logging.info(f"Healthcheck rodando na porta {PORT}")
+
+# =========================================================
+# READY
 # =========================================================
 
 @bot.event
-async def on_command_error(ctx, error):
+async def on_ready():
 
-    if isinstance(error, commands.CommandNotFound):
+    global channel_cache
+
+    logging.info(f"BOT ONLINE: {bot.user}")
+
+    channel_cache = bot.get_channel(CHANNEL_ID)
+
+    if channel_cache is None:
+
+        logging.error("Canal não encontrado.")
+
         return
 
-    await ctx.send(f"❌ Erro: {error}")
+    try:
 
-    print(error)
+        synced = await bot.tree.sync()
+
+        logging.info(f"Slash commands sincronizados: {len(synced)}")
+
+    except Exception as e:
+
+        logging.error(f"Erro slash commands: {e}")
+
+    if not check_events.is_running():
+        check_events.start()
+
+    if not panel_loop.is_running():
+        panel_loop.start()
+
+    if not clean_notified.is_running():
+        clean_notified.start()
+
+# =========================================================
+# MAIN
+# =========================================================
+
+async def main():
+
+    async with bot:
+
+        await run_webserver()
+
+        await bot.start(TOKEN)
 
 # =========================================================
 # RUN
 # =========================================================
 
-bot.run(TOKEN)
+asyncio.run(main())
