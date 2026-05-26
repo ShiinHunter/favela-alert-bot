@@ -1,0 +1,78 @@
+{
+  "daily": [
+    {
+      "name": "Escape Room",
+      "times": [
+        "03:00",
+        "11:00",
+        "19:00"
+      ]
+    },
+    {
+      "name": "Boss Rush",
+      "times": [
+        "15:00"
+      ]
+    }
+  ],
+
+  "weekly": {
+
+    "monday": [
+      {
+        "name": "Gold Fish",
+        "times": [
+          "07:00",
+          "15:15"
+        ]
+      }
+    ],
+
+    "tuesday": [
+      {
+        "name": "Ranked Arena",
+        "times": [
+          "15:30",
+          "20:30"
+        ]
+      }
+    ],
+
+    "wednesday": [
+      {
+        "name": "Fortress War",
+        "times": [
+          "15:30"
+        ]
+      }
+    ],
+
+    "thursday": [
+      {
+        "name": "Ranked Arena",
+        "times": [
+          "15:30",
+          "20:30"
+        ]
+      }
+    ],
+
+    "friday": [
+      {
+        "name": "Raids",
+        "times": [
+          "00:00"
+        ]
+      }
+    ],
+
+    "saturday": [
+      {
+        "name": "Raids",
+        "times": [
+          "00:00"
+        ]
+      }
+    ]
+  }
+}
