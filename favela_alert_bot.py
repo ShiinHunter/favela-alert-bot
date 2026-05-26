@@ -18,10 +18,7 @@ EVENT_ROLE_ID = 1508823642958594149
 
 EVENT_FILE = "events.json"
 
-# Horário do jogo (UTC-5)
-GAME_TZ = ZoneInfo("Etc/GMT+5")
-
-# Horário Brasil
+# HORÁRIO BRASIL
 LOCAL_TZ = ZoneInfo("America/Sao_Paulo")
 
 # =========================================================
@@ -180,14 +177,32 @@ def get_today_events():
 
     events = []
 
-    # DAILY EVENTS
+    # =========================================
+    # EVENTOS DIÁRIOS
+    # =========================================
+
     for event in EVENTS.get("daily", []):
         events.append(event)
 
-    # WEEKLY EVENTS
-    weekday = datetime.now(LOCAL_TZ).strftime("%A").lower()
+    # =========================================
+    # DIAS EM PORTUGUÊS
+    # =========================================
 
-    weekly_events = EVENTS.get("weekly", {}).get(weekday, [])
+    weekdays = {
+        "monday": "segunda",
+        "tuesday": "terca",
+        "wednesday": "quarta",
+        "thursday": "quinta",
+        "friday": "sexta",
+        "saturday": "sabado",
+        "sunday": "domingo"
+    }
+
+    weekday_en = datetime.now(LOCAL_TZ).strftime("%A").lower()
+
+    weekday_pt = weekdays.get(weekday_en)
+
+    weekly_events = EVENTS.get("weekly", {}).get(weekday_pt, [])
 
     for event in weekly_events:
         events.append(event)
@@ -213,36 +228,20 @@ async def check_events():
 
         event_name = event["name"]
 
-        for game_time in event["times"]:
+        for event_time in event["times"]:
 
-            hour, minute = map(int, game_time.split(":"))
+            hour, minute = map(int, event_time.split(":"))
 
-            # =========================================
-            # HORÁRIO DO JOGO (UTC-5)
-            # =========================================
-
-            game_now = datetime.now(GAME_TZ)
-
-            game_dt = game_now.replace(
+            event_dt = now.replace(
                 hour=hour,
                 minute=minute,
                 second=0,
                 microsecond=0
             )
 
-            # Se já passou hoje, pula
-            if game_dt < game_now:
-                continue
+            warn_dt = event_dt - timedelta(minutes=5)
 
-            # =========================================
-            # CONVERTE PRA BRASIL
-            # =========================================
-
-            local_dt = game_dt.astimezone(LOCAL_TZ)
-
-            warn_dt = local_dt - timedelta(minutes=5)
-
-            unique_id = f"{event_name}-{local_dt}"
+            unique_id = f"{event_name}-{event_dt}"
 
             warn_key = f"warn-{unique_id}"
             start_key = f"start-{unique_id}"
@@ -263,7 +262,7 @@ async def check_events():
                     (
                         f"{role_ping()}\n\n"
                         f"⏳ Começa em 5 minutos.\n"
-                        f"🕒 Horário: {local_dt.strftime('%H:%M')}"
+                        f"🕒 Horário: {event_dt.strftime('%H:%M')}"
                     ),
                     0xffcc00
                 )
@@ -274,7 +273,7 @@ async def check_events():
                         countdown_event(
                             unique_id,
                             event_name,
-                            local_dt
+                            event_dt
                         )
                     )
 
@@ -284,7 +283,7 @@ async def check_events():
 
             if (
                 start_key not in notified
-                and local_dt <= now < local_dt + timedelta(seconds=15)
+                and event_dt <= now < event_dt + timedelta(seconds=15)
             ):
 
                 notified.add(start_key)
