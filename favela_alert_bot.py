@@ -20,6 +20,7 @@ EVENT_ROLE_ID = 1508823642958594149
 GUILD_ID = 1508595762965774417
 
 EVENT_FILE = "events.json"
+PANEL_FILE = "panel.json"
 
 PORT = int(os.getenv("PORT", 8080))
 
@@ -39,6 +40,7 @@ logging.basicConfig(
 # =========================================================
 
 intents = discord.Intents.default()
+
 intents.guilds = True
 intents.members = True
 intents.message_content = True
@@ -49,10 +51,11 @@ bot = commands.Bot(
 )
 
 # =========================================================
-# GLOBAL
+# GLOBALS
 # =========================================================
 
 channel_cache = None
+panel_message = None
 
 # =========================================================
 # EMOJIS
@@ -86,6 +89,34 @@ def load_events():
 EVENTS = load_events()
 
 # =========================================================
+# PANEL SAVE
+# =========================================================
+
+def save_panel(message_id):
+
+    with open(PANEL_FILE, "w", encoding="utf-8") as f:
+
+        json.dump({
+            "panel_message_id": message_id
+        }, f)
+
+def load_panel():
+
+    if not os.path.exists(PANEL_FILE):
+        return None
+
+    try:
+
+        with open(PANEL_FILE, "r", encoding="utf-8") as f:
+
+            data = json.load(f)
+
+        return data.get("panel_message_id")
+
+    except:
+        return None
+
+# =========================================================
 # EVENT EMOJI
 # =========================================================
 
@@ -110,7 +141,12 @@ def format_countdown(seconds):
     if seconds <= 0:
         return "AGORA"
 
-    minutes, seconds = divmod(int(seconds), 60)
+    hours, remainder = divmod(int(seconds), 3600)
+
+    minutes, seconds = divmod(remainder, 60)
+
+    if hours > 0:
+        return f"{hours:02d}h {minutes:02d}m"
 
     return f"{minutes:02d}m {seconds:02d}s"
 
@@ -170,19 +206,14 @@ def get_today_events():
     return events
 
 # =========================================================
-# PANEL
+# NEXT EVENTS
 # =========================================================
 
-async def update_panel():
-
-    global channel_cache
-
-    if channel_cache is None:
-        return
+def get_next_events():
 
     now = datetime.now(LOCAL_TZ)
 
-    text = ""
+    upcoming = []
 
     for event in get_today_events():
 
@@ -202,21 +233,93 @@ async def update_panel():
 
             diff = (event_dt - now).total_seconds()
 
-            emoji = event_emoji(event["name"])
+            upcoming.append({
+                "name": event["name"],
+                "time": event_time,
+                "diff": diff
+            })
 
-            text += (
-                f"{emoji} **{event['name']}**\n"
-                f"🕒 {event_time}\n"
-                f"⏳ {format_countdown(diff)}\n\n"
-            )
+    upcoming.sort(key=lambda x: x["diff"])
+
+    return upcoming[:10]
+
+# =========================================================
+# PANEL
+# =========================================================
+
+async def update_panel():
+
+    global panel_message
+    global channel_cache
+
+    if channel_cache is None:
+        return
+
+    events = get_next_events()
+
+    description = ""
+
+    for event in events:
+
+        emoji = event_emoji(event["name"])
+
+        description += (
+            f"{emoji} **{event['name']}**\n"
+            f"🕒 {event['time']}\n"
+            f"⏳ {format_countdown(event['diff'])}\n\n"
+        )
 
     embed = discord.Embed(
         title="📅 Próximos Eventos",
-        description=text if text else "Nenhum evento encontrado.",
+        description=description if description else "Nenhum evento encontrado.",
         color=0x00ffcc
     )
 
-    await channel_cache.send(embed=embed)
+    embed.set_footer(
+        text="Atualiza automaticamente"
+    )
+
+    try:
+
+        if panel_message is None:
+
+            panel_id = load_panel()
+
+            if panel_id:
+
+                try:
+
+                    panel_message = await channel_cache.fetch_message(panel_id)
+
+                except:
+                    panel_message = None
+
+        if panel_message is None:
+
+            panel_message = await channel_cache.send(embed=embed)
+
+            save_panel(panel_message.id)
+
+            logging.info("Painel criado.")
+
+        else:
+
+            await panel_message.edit(embed=embed)
+
+            logging.info("Painel atualizado.")
+
+    except Exception as e:
+
+        logging.error(f"Erro painel: {e}")
+
+# =========================================================
+# PANEL LOOP
+# =========================================================
+
+@tasks.loop(seconds=60)
+async def panel_loop():
+
+    await update_panel()
 
 # =========================================================
 # EVENT LOOP
@@ -272,7 +375,7 @@ async def check_events():
                 )
 
 # =========================================================
-# COMMAND TEST
+# COMMANDS
 # =========================================================
 
 @bot.tree.command(
@@ -282,24 +385,36 @@ async def check_events():
 )
 async def teste(interaction: discord.Interaction):
 
-    try:
+    logging.info("/teste executado")
 
-        logging.info("/teste executado")
+    await interaction.response.defer(ephemeral=True)
 
-        await interaction.response.send_message(
-            "✅ BOT FUNCIONANDO",
-            ephemeral=True
-        )
+    await send_alert(
+        "Boss Rush",
+        "🔥 TESTE MANUAL",
+        0xff0000
+    )
 
-        await send_alert(
-            "Boss Rush",
-            "🔥 TESTE MANUAL",
-            0xff0000
-        )
+    await interaction.followup.send(
+        "✅ Teste enviado.",
+        ephemeral=True
+    )
 
-    except Exception as e:
+@bot.tree.command(
+    name="painel",
+    description="Atualiza o painel",
+    guild=discord.Object(id=GUILD_ID)
+)
+async def painel(interaction: discord.Interaction):
 
-        logging.error(f"Erro /teste: {e}")
+    await interaction.response.defer(ephemeral=True)
+
+    await update_panel()
+
+    await interaction.followup.send(
+        "✅ Painel atualizado.",
+        ephemeral=True
+    )
 
 # =========================================================
 # HEALTHCHECK
@@ -362,13 +477,10 @@ async def on_ready():
 
         logging.error(f"Erro slash sync: {e}")
 
-    try:
+    await update_panel()
 
-        await update_panel()
-
-    except Exception as e:
-
-        logging.error(f"Erro painel: {e}")
+    if not panel_loop.is_running():
+        panel_loop.start()
 
     if not check_events.is_running():
         check_events.start()
