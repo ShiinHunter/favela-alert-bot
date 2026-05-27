@@ -294,7 +294,6 @@ def get_next_events():
         get_server_weekday()
     )
 
-    # HOJE + AMANHÃ
     for offset_day in range(2):
 
         day_index = (
@@ -550,7 +549,8 @@ async def update_panel():
 
     else:
 
-        for event in upcoming:
+        # APENAS 4 EVENTOS
+        for event in upcoming[:4]:
 
             description += (
                 f"{event_emoji(event['name'])} "
