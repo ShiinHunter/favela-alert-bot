@@ -17,23 +17,40 @@ from zoneinfo import ZoneInfo
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
+# =========================================================
 # CANAIS
-PANEL_CHANNEL_ID = 1508595763855229048
-ALERT_CHANNEL_ID = 1509274540600201216
+# =========================================================
 
+PANEL_CHANNEL_ID = 000000000000000000
+ALERT_CHANNEL_ID = 000000000000000000
+
+# =========================================================
 # CARGO
+# =========================================================
+
 EVENT_ROLE_ID = 1508823642958594149
 
+# =========================================================
 # ARQUIVOS
+# =========================================================
+
 EVENT_FILE = "events.json"
 PANEL_FILE = "panel.json"
 
+# =========================================================
 # PORTA RAILWAY
+# =========================================================
+
 PORT = int(os.getenv("PORT", 8080))
 
-# TIMEZONES
+# =========================================================
+# TIMEZONE
+# =========================================================
+
 BR_TZ = ZoneInfo("America/Sao_Paulo")
-SERVER_OFFSET = 5  # server = BR +5h
+
+# SERVER = BR +5
+SERVER_OFFSET = 5
 
 # =========================================================
 # LOGGING
@@ -86,7 +103,7 @@ role_message = None
 notified = set()
 
 # =========================================================
-# EMOJIS
+# EVENT EMOJIS
 # =========================================================
 
 EVENT_EMOJIS = {
@@ -128,7 +145,9 @@ def get_server_weekday():
 
     server_now = get_server_time()
 
-    return weekdays[server_now.strftime("%A").lower()]
+    return weekdays[
+        server_now.strftime("%A").lower()
+    ]
 
 # =========================================================
 # LOAD EVENTS
@@ -144,6 +163,7 @@ def load_events():
         }
 
     with open(EVENT_FILE, "r", encoding="utf-8") as f:
+
         return json.load(f)
 
 EVENTS = load_events()
@@ -152,9 +172,16 @@ EVENTS = load_events()
 # PANEL DATA
 # =========================================================
 
-def save_panel_data(panel_id=None, role_id=None):
+def save_panel_data(
+    panel_id=None,
+    role_id=None
+):
 
-    with open(PANEL_FILE, "w", encoding="utf-8") as f:
+    with open(
+        PANEL_FILE,
+        "w",
+        encoding="utf-8"
+    ) as f:
 
         json.dump({
             "panel_message_id": panel_id,
@@ -168,7 +195,12 @@ def load_panel_data():
 
     try:
 
-        with open(PANEL_FILE, "r", encoding="utf-8") as f:
+        with open(
+            PANEL_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
             return json.load(f)
 
     except:
@@ -184,42 +216,53 @@ def role_ping():
 
 def event_emoji(event_name):
 
-    return EVENT_EMOJIS.get(event_name, "🎮")
+    return EVENT_EMOJIS.get(
+        event_name,
+        "🎮"
+    )
 
 def format_countdown(seconds):
 
     if seconds <= 0:
         return "AGORA"
 
-    hours, remainder = divmod(int(seconds), 3600)
+    hours, remainder = divmod(
+        int(seconds),
+        3600
+    )
 
-    minutes, seconds = divmod(remainder, 60)
+    minutes, seconds = divmod(
+        remainder,
+        60
+    )
 
     if hours > 0:
+
         return f"{hours:02d}h {minutes:02d}m"
 
     return f"{minutes:02d}m {seconds:02d}s"
 
 # =========================================================
-# EVENT SYSTEM
+# GET EVENTS FROM DAY
 # =========================================================
 
-def get_today_events():
+def get_events_from_day(day_name):
 
     events = []
 
-    # DIÁRIOS
-    for event in EVENTS.get("daily", []):
+    # DAILY
+    for event in EVENTS.get(
+        "daily",
+        []
+    ):
 
         events.append(event)
 
-    # SEMANAIS
-    server_day = get_server_weekday()
-
+    # WEEKLY
     weekly_events = EVENTS.get(
         "weekly",
         {}
-    ).get(server_day, [])
+    ).get(day_name, [])
 
     for event in weekly_events:
 
@@ -237,46 +280,86 @@ def get_next_events():
 
     server_now = get_server_time()
 
-    for event in get_today_events():
+    server_days = [
+        "segunda",
+        "terca",
+        "quarta",
+        "quinta",
+        "sexta",
+        "sabado",
+        "domingo"
+    ]
 
-        for event_time in event["times"]:
+    current_day_index = server_days.index(
+        get_server_weekday()
+    )
 
-            hour, minute = map(int, event_time.split(":"))
+    # HOJE + AMANHÃ
+    for offset_day in range(2):
 
-            server_event_dt = server_now.replace(
-                hour=hour,
-                minute=minute,
-                second=0,
-                microsecond=0
-            )
+        day_index = (
+            current_day_index + offset_day
+        ) % 7
 
-            # evento real começa +5min
-            server_event_dt += timedelta(minutes=5)
+        day_name = server_days[day_index]
 
-            br_event_dt = server_to_br(server_event_dt)
+        day_events = get_events_from_day(
+            day_name
+        )
 
-            diff = (
-                br_event_dt - get_br_time()
-            ).total_seconds()
+        for event in day_events:
 
-            if diff < -300:
-                continue
+            for event_time in event["times"]:
 
-            upcoming.append({
-                "name": event["name"],
-                "time": br_event_dt.strftime("%H:%M"),
-                "diff": max(diff, 0)
-            })
+                hour, minute = map(
+                    int,
+                    event_time.split(":")
+                )
 
-    upcoming.sort(key=lambda x: x["diff"])
+                server_event_dt = (
+                    server_now + timedelta(days=offset_day)
+                ).replace(
+                    hour=hour,
+                    minute=minute,
+                    second=0,
+                    microsecond=0
+                )
 
-    return upcoming
+                # evento começa +5min
+                server_event_dt += timedelta(minutes=5)
+
+                br_event_dt = server_to_br(
+                    server_event_dt
+                )
+
+                diff = (
+                    br_event_dt - get_br_time()
+                ).total_seconds()
+
+                if diff <= 0:
+                    continue
+
+                upcoming.append({
+                    "name": event["name"],
+                    "time": br_event_dt.strftime("%d/%m %H:%M"),
+                    "diff": diff
+                })
+
+    upcoming.sort(
+        key=lambda x: x["diff"]
+    )
+
+    return upcoming[:10]
 
 # =========================================================
-# ALERT
+# SEND ALERT
 # =========================================================
 
-async def send_alert(event_name, message, color):
+async def send_alert(
+    event_name,
+    message,
+    color
+):
 
     if alert_channel is None:
         return
@@ -289,7 +372,9 @@ async def send_alert(event_name, message, color):
 
     embed.timestamp = get_br_time()
 
-    await alert_channel.send(embed=embed)
+    await alert_channel.send(
+        embed=embed
+    )
 
 # =========================================================
 # ROLE BUTTON
@@ -299,7 +384,9 @@ class NotificationView(View):
 
     def __init__(self):
 
-        super().__init__(timeout=None)
+        super().__init__(
+            timeout=None
+        )
 
     @discord.ui.button(
         label="Receber Notificações",
@@ -313,7 +400,9 @@ class NotificationView(View):
         button: Button
     ):
 
-        role = interaction.guild.get_role(EVENT_ROLE_ID)
+        role = interaction.guild.get_role(
+            EVENT_ROLE_ID
+        )
 
         if role is None:
 
@@ -328,7 +417,9 @@ class NotificationView(View):
 
             if role in interaction.user.roles:
 
-                await interaction.user.remove_roles(role)
+                await interaction.user.remove_roles(
+                    role
+                )
 
                 await interaction.response.send_message(
                     "❌ Notificações removidas.",
@@ -337,7 +428,9 @@ class NotificationView(View):
 
             else:
 
-                await interaction.user.add_roles(role)
+                await interaction.user.add_roles(
+                    role
+                )
 
                 await interaction.response.send_message(
                     "✅ Notificações ativadas.",
@@ -346,7 +439,9 @@ class NotificationView(View):
 
         except Exception as e:
 
-            logging.error(f"Erro cargo: {e}")
+            logging.error(
+                f"Erro cargo: {e}"
+            )
 
             await interaction.response.send_message(
                 "❌ Não consegui alterar seu cargo.",
@@ -402,6 +497,7 @@ async def setup_role_panel():
                 )
 
             except:
+
                 role_message = None
 
         if role_message is None:
@@ -412,7 +508,9 @@ async def setup_role_panel():
             )
 
             save_panel_data(
-                panel_data.get("panel_message_id"),
+                panel_data.get(
+                    "panel_message_id"
+                ),
                 role_message.id
             )
 
@@ -425,7 +523,9 @@ async def setup_role_panel():
 
     except Exception as e:
 
-        logging.error(f"Erro painel cargo: {e}")
+        logging.error(
+            f"Erro painel cargo: {e}"
+        )
 
 # =========================================================
 # UPDATE PANEL
@@ -442,14 +542,22 @@ async def update_panel():
 
     description = ""
 
-    for event in upcoming[:10]:
+    if not upcoming:
 
-        description += (
-            f"{event_emoji(event['name'])} "
-            f"**{event['name']}**\n"
-            f"🕒 {event['time']}\n"
-            f"⏳ {format_countdown(event['diff'])}\n\n"
+        description = (
+            "Nenhum evento encontrado."
         )
+
+    else:
+
+        for event in upcoming:
+
+            description += (
+                f"{event_emoji(event['name'])} "
+                f"**{event['name']}**\n"
+                f"🕒 {event['time']}\n"
+                f"⏳ {format_countdown(event['diff'])}\n\n"
+            )
 
     embed = discord.Embed(
         title="📅 Próximos Eventos",
@@ -478,6 +586,7 @@ async def update_panel():
                 )
 
             except:
+
                 panel_message = None
 
         if panel_message is None:
@@ -488,7 +597,9 @@ async def update_panel():
 
             save_panel_data(
                 panel_message.id,
-                panel_data.get("role_message_id")
+                panel_data.get(
+                    "role_message_id"
+                )
             )
 
         else:
@@ -499,7 +610,9 @@ async def update_panel():
 
     except Exception as e:
 
-        logging.error(f"Erro painel: {e}")
+        logging.error(
+            f"Erro painel: {e}"
+        )
 
 # =========================================================
 # PANEL LOOP
@@ -511,7 +624,7 @@ async def panel_loop():
     await update_panel()
 
 # =========================================================
-# EVENT LOOP
+# CHECK EVENTS
 # =========================================================
 
 @tasks.loop(seconds=15)
@@ -519,13 +632,22 @@ async def check_events():
 
     server_now = get_server_time()
 
-    for event in get_today_events():
+    current_day = get_server_weekday()
+
+    events_today = get_events_from_day(
+        current_day
+    )
+
+    for event in events_today:
 
         event_name = event["name"]
 
         for event_time in event["times"]:
 
-            hour, minute = map(int, event_time.split(":"))
+            hour, minute = map(
+                int,
+                event_time.split(":")
+            )
 
             server_event_dt = server_now.replace(
                 hour=hour,
@@ -534,10 +656,13 @@ async def check_events():
                 microsecond=0
             )
 
-            # evento começa +5min
+            # evento real começa +5min
             server_event_dt += timedelta(minutes=5)
 
-            warn_dt = server_event_dt - timedelta(minutes=5)
+            warn_dt = (
+                server_event_dt
+                - timedelta(minutes=5)
+            )
 
             warn_key = (
                 f"{event_name}-warn-"
@@ -549,13 +674,15 @@ async def check_events():
                 f"{server_event_dt.strftime('%Y%m%d%H%M')}"
             )
 
-            # ALERTA 5 MIN
+            # 5 MIN
             if (
                 warn_key not in notified
                 and warn_dt <= server_now < warn_dt + timedelta(seconds=20)
             ):
 
-                notified.add(warn_key)
+                notified.add(
+                    warn_key
+                )
 
                 await send_alert(
                     event_name,
@@ -566,13 +693,15 @@ async def check_events():
                     0xffcc00
                 )
 
-            # COMEÇOU
+            # START
             if (
                 start_key not in notified
                 and server_event_dt <= server_now < server_event_dt + timedelta(seconds=20)
             ):
 
-                notified.add(start_key)
+                notified.add(
+                    start_key
+                )
 
                 await send_alert(
                     event_name,
@@ -584,7 +713,7 @@ async def check_events():
                 )
 
 # =========================================================
-# TEST COMMAND
+# TEST EVENT
 # =========================================================
 
 async def simulated_event():
@@ -599,7 +728,9 @@ async def simulated_event():
         color=0xffcc00
     )
 
-    msg = await alert_channel.send(embed=embed)
+    msg = await alert_channel.send(
+        embed=embed
+    )
 
     remaining = 60
 
@@ -611,7 +742,9 @@ async def simulated_event():
             f"**{format_countdown(remaining)}**"
         )
 
-        await msg.edit(embed=embed)
+        await msg.edit(
+            embed=embed
+        )
 
         await asyncio.sleep(5)
 
@@ -626,17 +759,21 @@ async def simulated_event():
         color=0xff0000
     )
 
-    await msg.edit(embed=embed)
+    await msg.edit(
+        embed=embed
+    )
 
 # =========================================================
-# COMMANDS
+# SLASH COMMANDS
 # =========================================================
 
 @bot.tree.command(
     name="teste",
     description="Simula um evento"
 )
-async def teste(interaction: discord.Interaction):
+async def teste(
+    interaction: discord.Interaction
+):
 
     await interaction.response.defer(
         ephemeral=True
@@ -655,7 +792,9 @@ async def teste(interaction: discord.Interaction):
     name="painel",
     description="Atualiza o painel"
 )
-async def painel(interaction: discord.Interaction):
+async def painel(
+    interaction: discord.Interaction
+):
 
     await interaction.response.defer(
         ephemeral=True
@@ -674,13 +813,18 @@ async def painel(interaction: discord.Interaction):
 
 async def healthcheck(request):
 
-    return web.Response(text="ONLINE")
+    return web.Response(
+        text="ONLINE"
+    )
 
 async def run_webserver():
 
     app = web.Application()
 
-    app.router.add_get("/", healthcheck)
+    app.router.add_get(
+        "/",
+        healthcheck
+    )
 
     runner = web.AppRunner(app)
 
@@ -704,7 +848,9 @@ async def on_ready():
     global panel_channel
     global alert_channel
 
-    logging.info(f"BOT ONLINE: {bot.user}")
+    logging.info(
+        f"BOT ONLINE: {bot.user}"
+    )
 
     try:
 
@@ -716,11 +862,15 @@ async def on_ready():
             ALERT_CHANNEL_ID
         )
 
-        logging.info("Canais carregados.")
+        logging.info(
+            "Canais carregados."
+        )
 
     except Exception as e:
 
-        logging.error(f"Erro canais: {e}")
+        logging.error(
+            f"Erro canais: {e}"
+        )
 
         return
 
@@ -733,9 +883,11 @@ async def on_ready():
     await update_panel()
 
     if not panel_loop.is_running():
+
         panel_loop.start()
 
     if not check_events.is_running():
+
         check_events.start()
 
 # =========================================================
